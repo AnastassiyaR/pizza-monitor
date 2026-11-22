@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: sensor-service
+  main:
+    web-application-type: none
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}   # comma-separated broker list
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # PizzaMetric object -> JSON (bytes) when sending
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all                    # acknowledged once all in-sync replicas have the record (safest)
+      properties:
+        enable.idempotence: true   # a retry after a failure will not create a duplicate
+        # Do not put the Java class name into headers: the JSON stays "clean" and readable from any language
+        spring.json.add.type.headers: false
+
+pizza:
+  sensor:
+    interval-ms: ${SENSOR_INTERVAL_MS:3000}
+
+logging:
+  level:
+    root: INFO
+    org.apache.kafka: WARN
+    com.pizza.monitor: INFO

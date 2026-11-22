@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pizza Monitor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header { text-align: center; color: white; margin-bottom: 30px; }
+        h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .status {
+            display: inline-block;
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        .status.connected { background: #10b981; }
+        .status.disconnected { background: #ef4444; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s, opacity 0.3s;
+        }
+        .card:hover { transform: translateY(-5px); }
+        .card.offline { opacity: 0.6; }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .updated { font-size: 0.6em; font-weight: normal; color: #999; }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .metric:last-child { border-bottom: none; }
+        .metric-value { font-size: 1.2em; font-weight: bold; }
+        .metric-value.danger { color: #ef4444; }
+        .metric-value.warning { color: #f59e0b; }
+        .metric-value.success { color: #10b981; }
+        .alerts-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .alerts-panel h2 { margin-bottom: 15px; }
+        .alert-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            background: #fef2f2;
+            border-left: 4px solid #ef4444;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+        }
+        .alert-time { color: #999; white-space: nowrap; }
+        .no-data { text-align: center; color: #999; padding: 40px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Pizza Monitor</h1>
+            <div class="status" id="wsStatus">Connecting...</div>
+        </header>
+        <div class="grid" id="pizzeriasGrid"></div>
+        <div class="alerts-panel">
+            <h2>Recent alerts</h2>
+            <div id="alertsList"></div>
+        </div>
+    </div>
+
+    <script>
+        const METRICS = [
+            {
+                key: 'temperature',
+                label: 'Oven temperature',
+                format: (m) => `${Math.round(m.temperature)} °C`,
+                level: (m, t) => m.temperature > t.tempCritical ? 'danger'
+                               : m.temperature > t.tempWarning ? 'warning' : 'success'
+            },
+            {
+                key: 'ordersPerHour',
+                label: 'Orders per hour',
+                format: (m) => String(m.ordersPerHour)
+            },
+            {
+                key: 'doughStock',
+                label: 'Dough stock',
+                format: (m) => `${Math.round(m.doughStock)} kg`,
+                level: (m, t) => m.doughStock < t.doughCritical ? 'danger'
+                               : m.doughStock < t.doughWarning ? 'warning' : 'success'
+            },
+            {
+                key: 'employeesOnDuty',
+                label: 'Staff on duty',
+                format: (m) => String(m.employeesOnDuty)
+            }
+        ];
+
+        const statusEl = document.getElementById('wsStatus');
+        const gridEl = document.getElementById('pizzeriasGrid');
+        const alertsEl = document.getElementById('alertsList');
+
+        const cards = new Map();
+
+        const formatTime = (iso) => new Date(iso).toLocaleTimeString('en-GB');
+
+        function el(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function createCard(pizzeria) {
+            const root = el('div', 'card offline');
+            const header = el('div', 'card-header');
+            const updated = el('span', 'updated', 'No data');
+            header.append(el('span', '', pizzeria.name), updated);
+            root.append(header);
+
+            const values = {};
+            for (const metric of METRICS) {
+                const row = el('div', 'metric');
+                values[metric.key] = el('div', 'metric-value', '—');
+                row.append(el('div', '', metric.label), values[metric.key]);
+                root.append(row);
+            }
+
+            gridEl.append(root);
+            return { root, updated, values };
+        }
+
+        function updateCard(card, metrics, thresholds) {
+            card.root.classList.toggle('offline', !metrics);
+            card.updated.textContent = metrics ? formatTime(metrics.timestamp) : 'No data';
+
+            for (const metric of METRICS) {
+                const valueEl = card.values[metric.key];
+                valueEl.textContent = metrics ? metric.format(metrics) : '—';
+                const level = metrics && metric.level ? metric.level(metrics, thresholds) : '';
+                valueEl.className = `metric-value ${level}`.trim();
+            }
+        }
+
+        function renderAlerts(alerts) {
+            alertsEl.replaceChildren();
+
+            if (alerts.length === 0) {
+                alertsEl.append(el('div', 'no-data', 'No alerts yet'));
+                return;
+            }
+
+            for (const alert of alerts) {
+                const item = el('div', 'alert-item');
+                const text = el('div');
+                text.append(el('strong', '', alert.pizzeriaName), document.createTextNode(` — ${alert.message}`));
+                item.append(text, el('div', 'alert-time', formatTime(alert.timestamp)));
+                alertsEl.append(item);
+            }
+        }
+
+        function handleSnapshot(snapshot) {
+            for (const pizzeria of snapshot.pizzerias) {
+                if (!cards.has(pizzeria.id)) cards.set(pizzeria.id, createCard(pizzeria));
+                updateCard(cards.get(pizzeria.id), pizzeria.metrics, snapshot.thresholds);
+            }
+            renderAlerts(snapshot.alerts);
+        }
+
+        function setStatus(text, className) {
+            statusEl.textContent = text;
+            statusEl.className = `status ${className}`.trim();
+        }
+
+        function connect() {
+            const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+            const ws = new WebSocket(`${protocol}://${location.host}/ws`);
+
+            ws.onopen = () => setStatus('Connected', 'connected');
+
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === 'snapshot') handleSnapshot(message);
+            };
+
+            ws.onclose = () => {
+                setStatus('Disconnected, reconnecting...', 'disconnected');
+                setTimeout(connect, 3000);
+            };
+        }
+
+        renderAlerts([]);
+        connect();
+    </script>
+</body>
+</html>

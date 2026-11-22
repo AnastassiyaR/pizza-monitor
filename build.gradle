@@ -1,0 +1,55 @@
+plugins {
+    id 'org.springframework.boot' version '3.5.7' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+}
+
+allprojects {
+    group = 'com.pizza.monitor'
+    version = '2.0.0'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    // Lombok must support the JDK you build with (JDK 25 needs Lombok 1.18.40+).
+    // Overrides the version managed by the Spring Boot BOM.
+    ext['lombok.version'] = '1.18.42'
+
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_23
+        targetCompatibility = JavaVersion.VERSION_23
+    }
+
+    // Versions of all Spring libraries (spring-kafka, spring-data-redis, lombok, jackson...)
+    // come from the Spring Boot BOM, so dependencies below have no explicit versions.
+    dependencyManagement {
+        imports {
+            mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
+        }
+    }
+
+    dependencies {
+        // Lombok: compileOnly + annotationProcessor - generates code at compile time
+        compileOnly 'org.projectlombok:lombok'
+        annotationProcessor 'org.projectlombok:lombok'
+        testCompileOnly 'org.projectlombok:lombok'
+        testAnnotationProcessor 'org.projectlombok:lombok'
+
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.compilerArgs << '-parameters'
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+    }
+}

@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: api-service
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+
+server:
+  port: ${PORT:3000}
+
+pizza:
+  api:
+    broadcast-interval-ms: ${BROADCAST_INTERVAL_MS:2000}
+  thresholds:
+    temp-warning: 300
+    temp-critical: 310
+    dough-warning: 40
+    dough-critical: 20
+
+logging:
+  level:
+    root: INFO
